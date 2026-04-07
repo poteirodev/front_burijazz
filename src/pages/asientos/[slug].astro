@@ -1,0 +1,352 @@
+---
+import "../../styles/global.css";
+
+export const prerender = false;
+
+type EventoDetalle = {
+  id: number;
+  slug: string;
+  nombre: string;
+  fecha: string;
+  hora: string;
+  lugar: string;
+  descripcion: string;
+};
+
+type AsientoEstado = "disponible" | "reservado" | "ocupado" | "bloqueado";
+
+type Asiento = {
+  id: number;
+  codigo: string;
+  fila: string;
+  numero: number;
+  estado: AsientoEstado;
+};
+
+const PRICE_PER_SEAT = 80;
+const MAX_SELECTABLE = 6;
+
+const { slug } = Astro.params;
+
+if (!slug) {
+  return new Response("Slug no válido", { status: 400 });
+}
+
+const eventoResponse = await fetch(
+  `https://panel.festivalburijazz.com/api/eventos.php?slug=${encodeURIComponent(slug)}`,
+  { cache: "no-store" }
+);
+
+if (!eventoResponse.ok) {
+  return new Response("No se pudo cargar el evento", { status: 500 });
+}
+
+const eventoData = await eventoResponse.json();
+const evento: EventoDetalle | null = Array.isArray(eventoData)
+  ? eventoData[0] ?? null
+  : eventoData ?? null;
+
+if (!evento) {
+  return new Response("Evento no encontrado", { status: 404 });
+}
+
+const asientosResponse = await fetch(
+  `https://panel.festivalburijazz.com/api/evento_asientos.php?slug=${encodeURIComponent(slug)}`,
+  { cache: "no-store" }
+);
+
+if (!asientosResponse.ok) {
+  return new Response("No se pudieron cargar los asientos", { status: 500 });
+}
+
+const asientosData = await asientosResponse.json();
+const asientos: Asiento[] = Array.isArray(asientosData) ? asientosData : [];
+
+const filas = [...new Set(asientos.map((seat) => seat.fila))].sort((a, b) =>
+  a.localeCompare(b)
+);
+
+const asientosPorFila = filas.map((fila) => ({
+  fila,
+  asientos: asientos
+    .filter((seat) => seat.fila === fila)
+    .sort((a, b) => a.numero - b.numero),
+}));
+---
+
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{evento.nombre} | Selección de asientos</title>
+
+    <style>
+      .seat-btn {
+        min-width: 62px;
+        border-radius: 8px;
+        border: 1px solid;
+        padding: 12px;
+        text-align: center;
+        font-size: 11px;
+        font-weight: 900;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        transition: all 0.15s ease;
+      }
+
+      .seat-available {
+        border-color: #2f8f68;
+        background: #0f6b57;
+        color: #d8fff3;
+        cursor: pointer;
+      }
+
+      .seat-available:hover {
+        background: #13876d;
+      }
+
+      .seat-selected {
+        outline: 3px solid #d4aa2a;
+        outline-offset: 2px;
+        box-shadow: 0 0 0 3px rgba(212, 170, 42, 0.25);
+        transform: scale(1.03);
+      }
+
+      .seat-reserved {
+        border-color: #d4aa2a;
+        background: #8b6b09;
+        color: #f9e7a6;
+        cursor: not-allowed;
+        opacity: 0.95;
+      }
+
+      .seat-occupied {
+        border-color: #8d4b55;
+        background: #6f2d38;
+        color: #ffd7dc;
+        cursor: not-allowed;
+        opacity: 0.95;
+      }
+
+      .seat-blocked {
+        border-color: #5f668b;
+        background: #40486c;
+        color: #eceffd;
+        cursor: not-allowed;
+        opacity: 0.95;
+      }
+    </style>
+  </head>
+
+  <body class="min-h-screen bg-[#07124a] text-[#efe0a2]">
+    <main class="mx-auto flex min-h-screen w-full max-w-[1180px] flex-col px-6 py-10">
+      <a
+        href="/"
+        class="mb-8 text-sm font-black uppercase tracking-[0.35em] text-[#d4aa2a] transition hover:text-[#efe0a2]"
+      >
+        Buri Jazz
+      </a>
+
+      <section class="mb-8">
+        <p class="mb-2 text-[11px] font-semibold uppercase tracking-[0.4em] text-[#efe0a2]/65">
+          Selección de asientos
+        </p>
+
+        <h1 class="text-5xl font-black uppercase tracking-[-0.03em] text-[#d4aa2a]">
+          {evento.nombre}
+        </h1>
+
+        <p class="mt-2 text-sm text-[#efe0a2]/80">
+          {evento.fecha} · {evento.hora} · {evento.lugar}
+        </p>
+      </section>
+
+      <section class="rounded-xl border border-[#d4aa2a]/35 bg-[#101d5c] px-5 py-5 shadow-[0_0_0_1px_rgba(212,170,42,0.05)]">
+        <div class="mx-auto mb-6 flex w-full max-w-[640px] items-center justify-center rounded-md bg-[#9d7b08] px-6 py-3 text-center text-xs font-black uppercase tracking-[0.35em] text-[#efe0a2]">
+          Escenario
+        </div>
+
+        {asientosPorFila.length > 0 ? (
+          <div class="space-y-4">
+            {asientosPorFila.map(({ fila, asientos }) => (
+              <div class="flex flex-wrap items-center gap-3">
+                <div class="w-8 text-center text-xs font-black uppercase text-[#efe0a2]/70">
+                  {fila}
+                </div>
+
+                <div class="flex flex-wrap gap-2">
+                  {asientos.map((seat) => (
+                    <button
+                      type="button"
+                      class:list={[
+                        "seat-btn",
+                        seat.estado === "disponible" && "seat-available",
+                        seat.estado === "reservado" && "seat-reserved",
+                        seat.estado === "ocupado" && "seat-occupied",
+                        seat.estado === "bloqueado" && "seat-blocked",
+                      ]}
+                      data-seat-id={seat.id}
+                      data-seat-code={seat.codigo}
+                      data-seat-status={seat.estado}
+                      disabled={seat.estado !== "disponible"}
+                    >
+                      {seat.codigo}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p class="text-sm text-[#efe0a2]/75">No hay asientos cargados para este evento.</p>
+        )}
+
+        <div class="mt-8 flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-[0.16em]">
+          <span class="rounded-md border border-[#2f8f68] bg-[#0f6b57] px-3 py-2 text-[#d8fff3]">Disponible</span>
+          <span class="rounded-md border border-[#d4aa2a] bg-[#8b6b09] px-3 py-2 text-[#f9e7a6]">Reservado</span>
+          <span class="rounded-md border border-[#8d4b55] bg-[#6f2d38] px-3 py-2 text-[#ffd7dc]">Ocupado</span>
+          <span class="rounded-md border border-[#5f668b] bg-[#40486c] px-3 py-2 text-[#eceffd]">Bloqueado</span>
+        </div>
+      </section>
+
+      <section class="mt-6 rounded-xl border border-[#d4aa2a]/20 bg-[#101d5c] px-5 py-5">
+        <h2 class="text-2xl font-black uppercase text-[#d4aa2a]">Resumen</h2>
+
+        <div class="mt-4 space-y-2 text-sm text-[#efe0a2]/80">
+          <p>
+            Asientos seleccionados:
+            <span id="selected-seats-text" class="font-bold text-[#efe0a2]">Ninguno</span>
+          </p>
+          <p>
+            Cantidad:
+            <span id="selected-count-text" class="font-bold text-[#efe0a2]">0</span>
+          </p>
+          <p>
+            Precio por asiento:
+            <span class="font-bold text-[#efe0a2]">Bs 80</span>
+          </p>
+          <p>
+            Total:
+            <span id="total-text" class="font-bold text-[#d4aa2a]">Bs 0</span>
+          </p>
+        </div>
+
+        <div class="mt-6">
+          <button
+            id="continue-btn"
+            type="button"
+            class="rounded-md bg-[#9d7b08] px-5 py-3 text-xs font-black uppercase tracking-[0.2em] text-[#efe0a2] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled
+          >
+            Continuar compra — Bs 0
+          </button>
+        </div>
+
+        <p id="feedback-message" class="mt-4 text-sm"></p>
+      </section>
+    </main>
+
+    <script define:vars={{ slug, MAX_SELECTABLE, PRICE_PER_SEAT }} is:inline>
+      const selectedSeats = [];
+
+      const seatButtons = document.querySelectorAll(".seat-btn");
+      const selectedSeatsText = document.getElementById("selected-seats-text");
+      const selectedCountText = document.getElementById("selected-count-text");
+      const totalText = document.getElementById("total-text");
+      const continueBtn = document.getElementById("continue-btn");
+      const feedbackMessage = document.getElementById("feedback-message");
+
+      function renderSummary() {
+        const count = selectedSeats.length;
+        const total = count * PRICE_PER_SEAT;
+
+        selectedSeatsText.textContent =
+          count > 0 ? selectedSeats.map((seat) => seat.code).join(", ") : "Ninguno";
+        selectedCountText.textContent = String(count);
+        totalText.textContent = `Bs ${total}`;
+        continueBtn.textContent = `Continuar compra — Bs ${total}`;
+        continueBtn.disabled = count === 0;
+      }
+
+      function paintSelected(button) {
+        if (button.dataset.seatStatus !== "disponible") return;
+        button.classList.add("seat-selected");
+      }
+
+      function unpaintSelected(button) {
+        button.classList.remove("seat-selected");
+      }
+
+      seatButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const seatId = Number(button.dataset.seatId);
+          const seatCode = button.dataset.seatCode;
+
+          const existingIndex = selectedSeats.findIndex((seat) => seat.id === seatId);
+
+          if (existingIndex >= 0) {
+            selectedSeats.splice(existingIndex, 1);
+            unpaintSelected(button);
+            renderSummary();
+            feedbackMessage.textContent = "";
+            return;
+          }
+
+          if (selectedSeats.length >= MAX_SELECTABLE) {
+            feedbackMessage.textContent = `Solo puedes seleccionar hasta ${MAX_SELECTABLE} asientos.`;
+            feedbackMessage.className = "mt-4 text-sm text-[#ffd7dc]";
+            return;
+          }
+
+          selectedSeats.push({
+            id: seatId,
+            code: seatCode,
+          });
+
+          paintSelected(button);
+          renderSummary();
+          feedbackMessage.textContent = "";
+        });
+      });
+
+      continueBtn?.addEventListener("click", async () => {
+        if (selectedSeats.length === 0) {
+          feedbackMessage.textContent = "Selecciona al menos un asiento.";
+          feedbackMessage.className = "mt-4 text-sm text-[#ffd7dc]";
+          return;
+        }
+
+        continueBtn.disabled = true;
+        continueBtn.textContent = "Procesando...";
+
+        try {
+          const response = await fetch("https://panel.festivalburijazz.com/api/reservar_asientos.php", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              slug,
+              asientos: selectedSeats.map((seat) => seat.id),
+            }),
+          });
+
+          const data = await response.json();
+
+          if (!response.ok || !data.ok) {
+            throw new Error(data.message || "No se pudieron reservar los asientos.");
+          }
+
+          window.location.href = data.redirect_url;
+        } catch (error) {
+          feedbackMessage.textContent = error instanceof Error ? error.message : "Error al continuar.";
+          feedbackMessage.className = "mt-4 text-sm text-[#ffd7dc]";
+          continueBtn.disabled = false;
+          renderSummary();
+        }
+      });
+
+      renderSummary();
+    </script>
+  </body>
+</html>
